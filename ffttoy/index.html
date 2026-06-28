@@ -1,0 +1,2200 @@
+<!doctype html>
+<html>
+  
+  <link rel="stylesheet" type="text/css" href="style.css">
+  
+
+  <body>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.7.2/p5.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.7.2/addons/p5.dom.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.7.2/addons/p5.sound.min.js"></script>
+    
+      <script src="./sketch.js"></script>
+
+    <script type="application/javascript">
+    
+//sketch.js
+let angle = 0;
+let radius = 50;
+let frequency = 2;
+//random color storage
+let r=[], g=[], b=[];
+//points storage
+let x = 0;
+let px = 0;
+let py = 0;
+let segsX = [];
+let segsY = [];
+let segsXz = [];
+let segsYz = [];
+let apx = [];
+let apy = [];
+let bpx = [];
+let bpy = [];
+///DOM buttons/boxes/sliders
+let b1, b2 ,b3, b4, s2, s3;
+let rb, rbv, cb1, cb2, cb3, cb4, cb5, cb6, cb7, cb8, cb9;
+//standing & trace
+let cb10, cb11;
+let s5 = [];
+let s5c = [];
+let s9, s10;
+let z, z2;
+let s1c, s4c, s6c, s7c, s8c;
+//positioning
+let sep = 0;//seperation of 2 main objs
+let toppad = 220;
+let sidepad = 150;
+//resolution inited to max
+let bins = 50;
+//sometimes P5 looses this !? so define
+let PI = 3.141592653589793;
+let TWO_PI = 6.283185307179586;
+//impotant to be able to spin
+let phase = 0;
+//integral coefficients calced in fucnx 2*PI/n*PI S 0-1 sin(n*PI*t) dt
+let coeffs = [];
+//waveShape arrays
+let sine = [];
+let pulse = [];
+let saw = [];
+let sqa = [];
+let tri = [];
+let cus = [];
+//active waveform
+let shape = [];
+//switch for dom options
+let custom = false;
+let points = true;
+let vectors = true;
+let orbits = false;
+let sweep = false;
+let absolute = false;
+//let resizeEvent = new Event('resize');
+let fs; //fullscreen
+let logr = false;
+//points size / line thickness
+let ps, lt;
+let cnv;
+//zoom
+let zoomFactor, zoomRange;
+let zoom = false;
+let phases = [];
+let trace = true;
+let rst1 = false;
+
+let time = 0;
+let colchange = false;
+// let rc;
+let bpx2 = [];
+let bpy2 = [];
+let showphases = false;
+//Listen
+let osc = [];
+//let osin, otri, osqu, osaw;
+let vols = [];
+let baseFreq = 300;
+let phaseVals = [];
+let listening = false;
+let ph;
+let vol, basefreq;
+//draw stuff
+let isDrawing = false;
+const USER = 0;
+const FOURIER = 1;
+let xya = [];
+let fourierXY;
+//let t = 0;
+let timed = 0;
+let path = [];
+let drawing = [];
+let state = -1;
+let xpts = [];
+let ypts = [];
+let xptsorg = [];
+let yptsorg = [];
+let fr, sk, fl, cbmf;
+let reload = false;
+let filtering = false;
+let sum1 = 0;
+let sum2 = 0;
+//let imgwec;
+let scl = 0.75;
+//let isDrawing = false;
+//let cbmf;
+//let cbzf;
+
+//function preload() {
+//  imgwec = loadImage('../pix/coyote.png');
+//}
+
+function setup() {
+  cnv = createCanvas(windowWidth, windowHeight);
+  orgsu();
+  drsu();
+  // //evts right click block
+  window.addEventListener("contextmenu", function(e) {
+    e.preventDefault();
+  });//resize wr()better but jic
+  window.addEventListener('resize', function() {
+    //rst();P5 has funct
+    console.log('resized');
+  });//
+}//su()
+
+//ani loop
+function draw() {
+  background(0);
+
+  //oncetest();
+
+  if(isDrawing === false) orgdr();
+  if(isDrawing === true) dan();
+}//dr
+
+//aux.js
+function lasso(ang) {
+  let a = 2*map((ang),0,360,0,PI);
+  let b = map((ang),0,360,0,TWO_PI);
+  for(let i = 1; i <= bins; i++) { //maxbins
+    let len = 40*sin(i*a);
+    fill(0,150,175);
+    rect(floor(windowWidth/bins*(i-1))+12, 43, 15, len);
+    noFill();
+    strokeWeight(1);
+    stroke(200);
+    ellipse(floor(windowWidth/bins*(i-1))+20, 100, 18);
+    let x = 9*cos((i*b)+radians(phase));
+    let y = 9*sin((i*b)+radians(phase));
+    line(floor(windowWidth/bins*(i-1))+20,100,floor(windowWidth/bins*(i-1))+20+x,100+y);
+    noStroke();
+  }//4
+}//lasso()
+
+function rndCol() {
+  for(let i = 0; i <= bins + 1; i++) { //maxbins
+    r[i] = random(50, 225);
+    g[i] = random(50, 225);
+    b[i] = random(50, 225);
+  }//4
+}//rndc()
+
+//capture
+function snapf() {
+  saveCanvas('screenshot.jpg');
+}//snapf()
+
+//predraw
+function predraw() {
+  if(colchange === false) {
+    bpx2 = [];
+    bpy2 = [];
+    for(let j = 0; j <= 361; j += 0.1) {
+      bpx2.push(sumC(radians(j)));
+      bpy2.push(sumS(radians(j)));
+    }//4
+    colchange = true;
+  }//fi
+}//pd()
+
+//predraw
+function pd() {
+  colchange = false;
+  if(listening) sndf();
+  //sndf();
+}//pd()
+
+// function keyPressed() {
+//   //background(0);
+//   //'s'
+//   if (keyCode == 83) {
+//     isDrawing = false;
+//     state = USER;
+//     drawing = [];
+//     xya = []
+//     time = [];
+//     path = [];
+//   }//fi //return false;
+//   //space
+//   if (keyCode == 32) {
+//     isDrawing = true;
+//   }//fi //return false;
+// }//keypress
+
+function skf() {
+  state = USER;
+  //  drawing = [];
+  xpts = [];
+  ypts = [];
+  xya = [];
+  xptsorg = [];
+  yptsprg = [];
+  path = [];
+  timed = 0;
+  reload = true;
+  mouseReleased();
+}//skf()
+
+function mousePressed() {
+  if (mouseButton === RIGHT) {
+    // cbmff.checked(true);
+    // filtering = true;
+    state = USER;
+    drawing = [];
+    xpts = [];
+    ypts = [];
+    xya = [];
+    xptsorg = [];
+    yptsprg = [];
+    path = [];
+    timed = 0;
+  }//fi
+}//mp()
+
+function mouseReleased() {
+  if (mouseButton === RIGHT || reload === true) {
+    //oncepathcb();
+    // cbmch.checked(true);
+    // filtering = true;
+
+    state = FOURIER;
+    let skip = sk.value();
+
+    //kill most time recording
+    for (let i = 0; i < drawing.length; i++) {
+      xpts[i] = drawing[i].x;
+      ypts[i] = drawing[i].y;
+      xptsorg[i] = drawing[i].x;
+      yptsorg[i] = drawing[i].y;
+      //  drawing[i].y = b => [...new Set(b)];
+    }//4
+
+    xpto = xpts.length;
+    ypto = ypts.length;
+    if(filtering === true) {
+      sum1 = 0;
+      // console.log("xpts.length = ",+xpts.length);
+      // console.log("ypts.length = ",+ypts.length);
+      for (let i = xpts.length-1; i >= 0; i--) {
+        if (xpts[i] === xpts[i-1]) {
+          xpts.splice(i,1);
+          ypts.splice(i,1);
+          //console.log("splicingX",+i);
+          sum1++;
+        }//fi;
+      }//4
+      sum2 = 0;
+      // console.log("xpts.length = ",+xpts.length);
+      // console.log("ypts.length = ",+ypts.length);
+      for (let i = ypts.length-1; i >= 0; i--) {
+        if (ypts[i] === ypts[i-1]) {
+          xpts.splice(i,1);
+          ypts.splice(i,1);
+          //console.log("splicingY",+i);
+          sum2++;
+        }//fi
+      }//4
+    }//fi
+    // newxpts = xpts => [...new Set(xpts)];
+    // newypts = ypts => [...new Set(ypts)];
+
+    for (let i = 0; i < xpts.length; i += skip) {
+      //let c = new Complex(drawing[i].x,drawing[i].y);
+      let c;
+      if(filtering === true) c = new Complex(xpts[i],ypts[i]);
+      if(filtering === false) c = new Complex(xptsorg[i],yptsorg[i]);
+      xya.push(c);
+    }//4
+
+    fourierXY = dftc(xya);
+    //fourierXY = dftc(drawing);
+    fourierXY.sort((a, b) => b.aXY - a.aXY);
+    //fourierXY.sort((a, b) => b.aXY - a.aXY);
+
+    fl.elt.max = fourierXY.length;
+    fl.value(fourierXY.length);
+    //reload = false;
+  }//fi rb
+  //reload = false;
+}//mr()
+
+//cb.js
+//checbox callbacks
+function cb1f() {
+  if (this.checked()) {
+    points = true;
+  } else {
+    points = false;
+  }//el
+}//cbf()
+
+function cb2f() {
+  if (this.checked()) {
+    vectors = true;
+  } else {
+    vectors = false;
+  }//el
+}//cbf()
+
+function cb3f() {
+  if (this.checked()) {
+    orbits = true;
+  } else {
+    orbits = false;
+  }//el
+}//cbf()
+
+function cb4f() {
+  if (this.checked()) {
+    sweep = true;
+  } else {
+    sweep = false;
+  }//el
+}//cbf()
+
+//abs
+function cb5f() {
+  if (this.checked()) {
+    //cb5.checked(true);
+    absolute = true;
+    //rst();
+  } else {
+    absolute = false;
+    //cb5.checked(false);
+    //rst();
+  }//el
+}//cbf()
+
+//fs
+function cb6f() {
+  if (this.checked()) {
+    fs = fullscreen(!fs);
+  } else {
+    fs = fullscreen(false);
+  }//el
+}//cbf()
+
+//pause
+function cb7f() {
+  if (this.checked()) {
+    noLoop();
+  } else {
+    loop();
+  }//el
+}//cbf()
+
+//log
+function cb8f() {
+  if (this.checked()) {
+    logr = true;
+    rst();
+  } else {
+    logr = false;
+    rst();
+  }//el
+}//cbf()
+
+//zoom
+function cb9f() {
+  if (this.checked()) {
+    zoom = true;
+
+    z.style('display', 'unset');
+    z2.style('display', 'unset');
+    s2.value(0.2);//speed
+    //cb5.style('display', 'none');
+    cb3.checked(true);//orb
+    orbits = true;
+    cb2.checked(false);//vec
+    vectors = false;
+    //z.value(7);
+    //rst();
+  } else {
+    zoom = false;
+    //if(custom)
+    z.style('display', 'none');
+    z2.style('display', 'none');
+    s2.value(1);
+    //cb5.style('display', 'unset');//abs
+    cb3.checked(false);
+    orbits = false;
+    cb2.checked(true);//vec
+    vectors = true;
+    //rst();
+  }//el
+}//cbf()
+
+//phases
+function cb10f() {
+  if (this.checked()) {
+    showphases = true;
+    //cb10.style('display', 'unset');
+    for(let i = 0; i < bins; i++) {
+      phases[i].style('display', 'unset');
+    }//4
+    s2.value(0.1);
+    frequency = 0.1; //really ?!
+    cb2.checked(false);//vectors
+    vectors = false;
+    cb3.checked(true);//orbits
+    orbits = true;
+    cb5.checked(true);//abs
+    absolute = true;
+    cb11.checked(false);//trace
+    trace = false;
+    redraw();
+    //rst();
+  } else {
+    showphases = false;
+    //frequency
+    //cb10.style('display', 'none');
+    for(let i = 0; i < bins; i++) {
+      phases[i].style('display', 'none');
+    }//4
+    redraw();
+    //rst();
+  }//el
+}//cbf()
+
+//trace
+function cb11f() {
+  if (this.checked()) {
+    trace = true;
+  } else {
+    trace = false;
+  }//el
+}//cbf()
+
+//list
+function cb12f() {
+  if (this.checked()) {
+    //rst();
+    listening = true;
+    basefreq.style('display', 'unset');
+    vol.style('display', 'unset');
+    textout();
+    //rst();
+    sndf();
+    rst();
+  } else {
+    //rst();
+    listening = false;
+    basefreq.style('display', 'none');
+    vol.style('display', 'none');
+    textout();
+    //rst();
+    sndf();
+    rst();
+  }//el
+}//cbf()
+
+//trace
+function cbzf() {
+  if (this.checked()) {
+    filtering = true;
+    state = USER;
+  //  drawing = [];
+    xpts = [];
+    ypts = [];
+    xya = [];
+    xptsorg = [];
+    yptsprg = [];
+    path = [];
+    timed = 0;
+    reload = true;
+    mouseReleased();
+  } else {
+    filtering = false;
+    state = USER;
+  //  drawing = [];
+    xpts = [];
+    ypts = [];
+    xya = [];
+    xptsorg = [];
+    yptsprg = [];
+    path = [];
+    timed = 0;
+    reload = true;
+    mouseReleased();
+  }//el
+}//cbf()
+
+//bf
+function sndf() {
+  setOscs();
+  updateOscs();
+  ssOscs();
+  //rst();
+}//cbf()
+
+//coeffs.js
+//analytical itegral coefficients
+function sinef() {
+  //sine[1] = 1;
+  for (let i = 0; i <= bins+1; i++) {
+    sine[i] = 0;
+  }//4
+  sine.unshift(0);
+  sine[1] = 1;
+}//sin()
+
+//sinc/pulse
+function pulsef() {
+  //pulse[0] = 0;
+  for (let i = 0; i <= bins+1; i++) {
+    pulse[i] = 1;
+  }//4
+  pulse.unshift(0);
+}//pul()
+
+//triangle
+function trif() {
+  //tri[0] = 0;
+  for (let i = 1; i <= bins+1; i++) {
+    let n1j = (1 - (pow(-1, i)));
+    let psis = ((PI*PI) * (i*i));
+    tri[i-1] = 4 * n1j/psis;
+  }//4
+  tri.unshift(0);
+}//tri()
+
+//1,.333...,.2,.142857142857
+function sawf() {
+  //saw[0] = 0;
+  for (let i = 1; i <= bins+1; i++) {
+    saw[i-1] = 1 / i;
+  }//4
+  saw.unshift(0);
+}//sawf()
+
+//1,0,.333...,0,.2,0.142857142857
+function squaref() {
+  let tmparr = [];
+  for (let i = 1; i <= bins; i++) {
+    sqa[i-1] = 1 / i;
+  }//4 insert 0's @ odd bins
+  for (let i = 0; i < bins; i+=2) {
+    tmparr[i] = sqa[i];
+    tmparr[i+1] = 0;
+  }//4
+  if(tmparr.length > bins) tmparr.pop();//splice(tmparr.length,1);
+  sqa = tmparr;
+  sqa.unshift(0);
+  //sqa.unshift(0);
+}//sq()
+
+//comp.js
+class Complex {
+  constructor(a,b) {
+    this.re = a;
+    this.im = b;
+  }//const
+
+  add(c) {
+    this.re += c.re;
+    this.im += c.im;
+  }//add
+
+  mult(c) {
+    let re = this.re * c.re - this.im * c.im;
+    let im = this.re * c.im + this.im * c.re;
+    return new Complex(re, im);
+  }//mult
+}//comp
+
+//dan.js
+function dan() {
+  imageMode(CENTER);
+  scale(scl);
+  //image(imgwec, 35, 75);
+  scale(1/scl);
+
+  drawBoxes();
+
+  fr.style('display', 'unset');
+  fl.style('display', 'unset');
+  sk.style('display', 'unset');
+  cbmf.style('display', 'unset');
+
+  strokeWeight(1);
+  noStroke();
+  fill(0,200,200);
+  text('Right Click & Drag to Draw(a Single Path)..........Repeat to Reset', windowWidth / 2 - 160, 20);
+  text('Frame Rate = '+int(fr.value()), windowWidth/2+15, windowHeight - 55);
+  text('Fourier Length = '+int(fl.value()), windowWidth/2+15 -200, windowHeight - 55);
+  text('Pixel Skip = '+int(sk.value()-1), windowWidth/2+15 +200, windowHeight - 55);
+  text('FPS = '+int(frameRate()), windowWidth - 250, windowHeight -5);
+  if(filtering === true) {
+     text('Saved = '+int((sum1+sum2)/2), windowWidth/2, 62);
+   }//fi
+   if(filtering === false) {
+      text('Saved = '+int(0), windowWidth/2, 62);
+    }//fi
+
+  noFill();
+
+  if (state == USER) {
+
+    let point = createVector(mouseX - windowWidth / 2, mouseY - windowHeight / 2);
+
+    drawing.push(point);
+
+    stroke(100,100);
+    strokeWeight(1);
+    noFill();
+    beginShape();
+    for (let v of drawing) {
+      vertex(v.x + windowWidth / 2, v.y + windowHeight / 2);
+    }//4
+    endShape();
+
+  } else if (state == FOURIER) {
+    stroke(100,100);
+    strokeWeight(1);
+    noFill();
+    beginShape();
+    for (let v of drawing) {
+      vertex(v.x + windowWidth / 2, v.y + windowHeight / 2);
+    }//4
+    endShape();
+
+    frameRate(fr.value());
+    strokeWeight(1);
+    noStroke();
+    fill(0,200,200);
+    //frs = map(fr.value(),1,60,1,100);
+
+    let vxy = ec(windowWidth/2, windowHeight / 2, fourierXY);
+
+    path.unshift(vxy);
+
+    stroke(255,0,0);
+    strokeWeight(6);
+    point(vxy.x,vxy.y);
+
+    beginShape();
+    noFill();
+    stroke(0,200,50,75);
+    strokeWeight(1);
+    for (let i = 0; i < path.length; i++) {
+      vertex(path[i].x, path[i].y);
+    }//4
+    endShape();
+
+    const dt = (TWO_PI / fourierXY.length);
+    timed +=  dt;
+
+    if (timed > TWO_PI) {
+      timed = 0;
+      path = [];
+    }//fi
+  }//elf
+
+  function ec(x, y, fourier) {
+    let ox = x;
+    let oy = y;
+    randomSeed(609);
+
+    for (let i = 0; i < fl.value(); i++) {
+      let prevx = x;
+      let prevy = y;
+
+      let freqXY = fourier[i].fXY;
+      let radiusXY = fourier[i].aXY;
+      let phaseXY = fourier[i].pXY;
+
+      x += radiusXY * cos(freqXY * timed + phaseXY);
+      y += radiusXY * sin(freqXY * timed + phaseXY);
+
+      //push();
+      let rrc = random(50,225);
+      let grc = random(50,200);
+      let brc = random(50,225);
+      noFill();
+      stroke(rrc,grc,brc);
+      strokeWeight(2);
+      if(vectors) line(prevx, prevy, x, y);
+      strokeWeight(1);
+      if(orbits) ellipse(prevx, prevy, radiusXY * 2);
+      strokeWeight(5);
+      if(points) point(x,y);
+    }
+    stroke(200,0,0);
+    strokeWeight(5);
+    point(ox,oy);
+    point(x, y);
+    //pop();
+    return createVector(x, y);
+  }//ec
+
+
+}//dan()
+
+
+//dft.js
+function dft(x) {
+  const X = [];
+  const N = x.length;
+  for (let k = 0; k < N; k++) {
+    let re = 0;
+    let im = 0;
+    for (let n = 0; n < N; n++) {
+      const phi = (TWO_PI * k * n) / N;
+      re += x[n] * cos(phi);
+      im -= x[n] * sin(phi);
+    }
+    re = re / N;
+    im = im / N;
+
+    let freq = k;
+    let amp = sqrt(re * re + im * im);
+    let phase = atan2(im, re);
+    X[k] = { re, im, freq, amp, phase };
+  }
+  return X;
+}//dft()
+
+//BIG THANKS to Dan Shiffman @ the Coding Train for the dft JS code
+function dftc(va) {
+  let XY = [];
+  let N = va.length;
+  for(let k = 0; k < N; k++) {
+    let sum = new Complex(0,0);
+    for(let n = 0; n < N; n++) {
+      let phi = (TWO_PI * k * n) / N;
+      let c = new Complex(cos(phi),-sin(phi));
+      sum.add(va[n].mult(c));
+    }//4
+    sum.re = sum.re / N;
+    sum.im = sum.im / N;
+    //frequency, amplitude, phase
+    let fXY = k;
+    let aXY = sqrt(sum.re*sum.re + sum.im*sum.im);
+    //let aXY = sum.mag();
+    let pXY = atan2(sum.im, sum.re);
+    //let pXY = sum.heading();
+    XY[k] = {re:sum.re, im:sum.im, fXY, aXY, pXY};
+    //XY[k] = {re:sum.x, im:sum.y, fXY, aXY, pXY};
+  }//4
+  return XY;
+}//dtfx()
+
+//draw.js
+//thE circular trace
+function drawstuff() {
+  noFill();
+  stroke(100,100);
+  strokeWeight(1);
+
+  //always if drawn
+  // beginShape();
+  // for(let i = 0; i < drawnPointsX.length; i++) {
+  //   vertex(drawnPointsX[i], drawnPointsY[i]);
+  // }//for
+  // endShape();
+
+  translate(sidepad,toppad);
+  //hack loose 1st coord in cased moved by switch
+  //push();
+  //always draw precalced light background/alpha trace
+  beginShape();
+  for(let i = 0; i < bpx2.length; i++) {
+    vertex(bpx2[i], bpy2[i]);
+  }//for
+  endShape();
+  //pop();
+
+  if(trace === true) {
+    //push();
+    if (colchange === true) {
+      beginShape();
+      stroke(0,255,100);
+      for(let i = 0; i < bpx.length; i++) {
+        vertex(bpx[i], bpy[i]);
+      }//for
+      endShape();
+      //pop();
+    }//fi
+  }//fi
+  //colchange = false;
+
+
+  if (zoom === false) {
+    stroke(0,255,100);
+    beginShape();
+    //hack loose 1st coord in cased moved by switch
+    for(let i = 0; i < apx.length; i++) {
+      vertex(apx[i]+x, apy[i]);
+    }//for
+    endShape();
+  }//el
+
+  //dots/cirs/vectors disply options
+  //if(drawnPointsX.length > 0) radius = 1;
+  for(let i = 0; i < bins; i++) {
+    // segsX[0] = 0;
+    // segsY[0] = 0;
+    //coeffs[0] = 0;
+    stroke(r[i+1],g[i+1],b[i+1]);
+    //connect the dots
+    strokeWeight(1);
+    if(orbits) ellipse(segsX[i], segsY[i], radius * coeffs[i]*2);
+    strokeWeight(lt);
+    if(vectors) line(segsX[i], segsY[i], segsX[i+1], segsY[i+1]);
+    strokeWeight(ps);
+    if(points) point(segsX[i], segsY[i]);
+  }//4
+
+  //center to trace point on top of lines !
+  stroke(255);
+  strokeWeight(1);
+  if(sweep) line(0, 0, px, py);
+  // connector of 2 objs
+  stroke(100,0,255);
+  if(zoom === false) line(px, py, sep, py);//
+
+  if(ps <= 5) {
+    strokeWeight(5);
+  } else {strokeWeight(ps)}
+  stroke(255, 0, 0);
+  //cir cent
+  point(0, 0);
+  //around cir sweep
+  point(px, py);
+  //moving right & up & down
+  if(zoom === false) point(sep, py);
+  //zoom
+  if(zoom === true) {
+    let xpos = windowWidth / 2 + 120;
+    let ypos = windowHeight / 2 - 15;
+    let rad = 50;
+    if(shape === tri) zoomFactor *= 100;
+    if(shape === pulse) (zoomFactor / 1000);
+    strokeWeight(2);
+
+    //seperate sum essentially for zoom "segments"
+    sumCz(radians(time));
+    sumSz(radians(time));
+
+    //zoom/play thing.
+    for(let i = zoomRange; i <= bins; i++) {
+      stroke(r[i+1],g[i+1],b[i+1]);
+      strokeWeight(1);
+      if(orbits) ellipse(xpos + segsXz[i]*rad, ypos + segsYz[i]*rad,
+        coeffs[i]*rad*2*zoomFactor, coeffs[i]*rad*2*zoomFactor);
+        strokeWeight(lt);
+        if(vectors) line(xpos + segsXz[i]*rad, ypos + segsYz[i]*rad,
+          xpos + segsXz[i+1]*rad, ypos + segsYz[i+1]*rad );
+          strokeWeight(ps);
+          if(points) point(xpos + segsXz[i+1] * rad, ypos + segsYz[i+1] * rad);
+        }//4
+        stroke(200,0,0);
+        point(xpos+rad, ypos+rad);
+      }//fi
+      //undo last trn()
+      translate(-sidepad,-toppad);
+    }//drawdtuff()
+
+//drsu.js
+function drsu() {
+  //if(isDrawing === false) orgsu();
+  //drawing frame rate
+  fr = createSlider(1,60,25,1);
+  fr.position(windowWidth/2, windowHeight - 55);
+  fr.style('display', 'none');
+  //fr.style('width', '90px');
+  //fr.style('rotate', '270');
+  //fr.changed(skf);
+  //draw rez
+  fl = createSlider(1,100,100,1);
+  fl.position(windowWidth/2 - 200, windowHeight - 55);
+  fl.style('display', 'none');
+  //pixel skip
+  sk = createSlider(1,10,1,1);
+  sk.position(windowWidth/2 + 200, windowHeight - 55);
+  sk.style('display', 'none');
+  sk.changed(skf);
+  //
+  cbmf = createCheckbox('Minimize Path(reccomended for Larger drawings)', false);
+  cbmf.position(windowWidth/2 -160, 25);
+  cbmf.style('background-color','#555');
+  cbmf.style('color','#000');
+  cbmf.style('padding','2px');
+  cbmf.style('display', 'none');
+  cbmf.changed(cbzf);
+
+  // //evts right click block
+  // window.addEventListener("contextmenu", function(e) {
+  //   e.preventDefault();
+  // });//resize wr()better but jic
+  // window.addEventListener('resize', function() {
+  //   //rst();P5 has funct
+  //   console.log('resized');
+  //});//
+  //windowResized();
+}//drsu()
+
+//listem.js
+function setOscs() {
+  if(osc.length != bins) {
+    if(osc.length > bins) {
+      for(let i = osc.length-1; i >= bins; i--) {
+        osc[i].stop();
+        osc.splice(i,1);
+      }//4l
+    }//fi
+    if(osc.length < bins) {
+      for(let i = osc.length; i < bins; i++) {
+        osc[i] = new p5.SinOsc();
+        //if(listening === true) osc[i].start();
+        //if(listening === false) osc[i].stop();
+      }//4
+    }//fi
+  }//fi
+}//list()
+
+//udo
+function updateOscs() {
+  if(listening === true && osc.length === bins)  {
+    for(let i = 1; i <= bins; i++) {
+      let v = map((vol.value()*shape[i-1]),0.0,1.0,0.0,1.0);
+      //if(rbv === 'Square') v = shape;
+      let m = 0.2;//soften/headphove speaker caution !
+      if(rbv === 'Triangle') m = 0.25;
+      if(rbv === 'Pulse') m = 0.05;
+      if(rbv === 'Custom') v = map((vol.value()*s5[i-1].value()),0.0,1.0,0.0,1.0);
+      osc[i-1].amp(v*m);//.mult([i-1](vol.value());//scale();
+
+      //400hz * 50bins = 20KHz
+      osc[i-1].freq((basefreq.value()*i));
+
+      let gp = map(phase,0,360,0,1);
+      let phs = map(phases[i-1].value(),0,360,0,1);
+      let ph = map(phs+gp,0,2,0,1);
+      //let ph = map((phs+gp),0,1,0,1);
+      osc[i-1].phase(ph);
+    }//4
+  }//fi
+}//pd()
+
+function ssOscs() {
+  if(osc.length === bins) {
+    for(let i = 0; i < osc.length; i++) {
+      if(listening === true) osc[i].start();
+      if(listening === false) osc[i].stop();
+    }//4
+  }//fi
+}//ss()
+
+//once.js
+//nice ! custom
+let once = (function() {
+  let executed = false;
+  return function(value) {
+    // if an argument is not present then
+    if(arguments.length == 0) {
+      if (!executed) {
+        //shape = [];
+        x = 0;
+        time = 0;
+        s1c.value(100);//radius
+        //s3.value(10);//bins
+        s4c.value(90);//phase
+        s6c.value(180);//x pos
+        s7c.value(185);//y pos
+        s8c.value(200);//sep
+        executed = true;
+        zoom = false;
+        s3.value(7);//bins
+        bins = 7;//really !???!
+
+        shape = [];
+        coeffs = [];
+        cus = [];
+        //rst();
+
+        //custom mode defaults
+        randomSeed(69);
+        for(let i = 0; i <= bins+1; i++) {
+          cus[i] = (random(0.2,0.8));//wtf
+        }//4
+        //coeffs[0] = 0;
+        shape = cus;
+        //cus[0] = 0;
+        //cus.unshift(0);
+        //setCustomVals();
+
+        rst();
+        cb8.checked(true);//log
+        logr = true;
+        if(zoom === false) s2.value(1);//freq/speed
+        if(zoom === true) s2.value(0.2);//freq/speed
+        z.value(7);//zf
+        z2.value(3);//zr
+        cb9.checked(false);
+        zoom = false;
+        cb3.checked(false);//orb
+        orbits = false;
+        cb2.checked(true);//vec
+        vectors = true;
+        z.style('display', 'none');
+        z2.style('display', 'none');
+        colchange = false;
+        cb10.checked(false);
+        cb10.style('display', 'unset');
+        showphases = false;
+        redraw();
+        //sndf();
+        rst();
+      }
+      else return;
+    } else {
+      // otherwise allow the function to fire again
+      executed = value;
+      return;
+    }
+  }
+})();//runonce()
+
+//absurdly redundant...thE same func for each shape...just to be able to assign default vals nfg !!
+let onceNotCusSin = (function() {
+  let exed = false;
+  return function(value) {
+    // if an argument is not present then
+    if(arguments.length == 0) {
+      if (!exed) {
+        shape = [];
+        shape = sine;
+        //setSineVals();
+        exed = true;
+        x = 0;
+        time = 0;
+        s1c.value(100);//radius
+        s4c.value(270);//phase
+        s6c.value(100);//sidepad
+        s7c.value(200);//toppad
+        s8c.value(200);//sep
+        //reg modeS defaults
+        zoom = false;
+        if(zoom === false) s2.value(1);//freq/speed
+        if(zoom === true) s2.value(0.2);//freq/speed
+        s3.value(25);//bins
+        bins = 25;
+        cb8.checked(false);//log
+        z.value(2);//zf
+        z2.value(bins);//zr
+        logr = false;
+        cb9.checked(false);
+        zoom = false;
+        cb3.checked(false);//orb
+        orbits = false;
+        cb2.checked(true);//vec
+        vectors = true;
+        z.style('display', 'none');
+        z2.style('display', 'none');
+        colchange = false;
+        cb10.style('display', 'none');
+        cb10.checked(false);
+        showphases = false;
+        cb11.checked(true);//trace
+        trace = true;
+        redraw();
+        //sndf();
+        rst();
+      }
+      else return;
+    } else {
+      // otherwise allow the function to fire again
+      exed = value;
+      return;
+    }
+  }
+})();//runonce()
+
+//nice !
+let onceNotCusPul = (function() {
+  let exed = false;
+  return function(value) {
+    // if an argument is not present then
+    if(arguments.length == 0) {
+      if (!exed) {
+        shape = [];
+        shape = pulse;
+        //setPulseVals();
+        exed = true;
+        zoom = false;
+        x = 0;
+        time = 0;
+        s1c.value(9);//radius
+        s4c.value(270);//phase
+        s6c.value(250);//sidepad
+        s7c.value(380);//toppad
+        s8c.value(100);//sep
+        //reg modeS defaults
+        if(zoom === false) s2.value(1);//freq/speed
+        if(zoom === true) s2.value(0.2);//freq/speed
+        s3.value(25);//bins
+        bins = 25;
+        cb8.checked(false);//log
+        z.value(0.5);//zf
+        z2.value(5);//zr
+        logr = false;
+        cb9.checked(false);
+        cb3.checked(false);//orb
+        orbits = false;
+        cb2.checked(true);//vec
+        vectors = true;
+        z.style('display', 'none');
+        z2.style('display', 'none');
+        colchange = false;
+        cb10.style('display', 'none');
+        cb10.checked(false);
+        showphases = false;
+        cb11.checked(true);//trace
+        trace = true;
+        redraw();
+        //sndf();
+        rst();
+      }
+      else return;
+    } else {
+      // otherwise allow the function to fire again
+      exed = value;
+      return;
+    }
+  }
+})();//runonce()
+
+//nice !
+let onceNotCusTri = (function() {
+  let exed = false;
+  return function(value) {
+    // if an argument is not present then
+    if(arguments.length == 0) {
+      if (!exed) {
+        shape = [];
+        shape = tri;
+        //setTriVals();
+        exed = true;
+        zoom = false;
+        x = 0;
+        time = 0;
+        s1c.value(100);//radius
+        s4c.value(90);//phase
+        s6c.value(170);//sidepad
+        s7c.value(200);//toppad
+        s8c.value(200);//sep
+        //reg modeS defaults
+        if(zoom === false) s2.value(1);//freq/speed
+        if(zoom === true) s2.value(0.2);//freq/speed
+        s3.value(25);//bins
+        bins = 25;
+        cb8.checked(false);//log
+        z.value(5);//zf
+        z2.value(8);//zr
+        logr = false;
+        cb9.checked(false);
+        cb3.checked(false);//orb
+        orbits = false;
+        cb2.checked(true);//vec
+        vectors = true;
+        z.style('display', 'none');
+        z2.style('display', 'none');
+        colchange = false;
+        cb10.style('display', 'none');
+        cb10.checked(false);
+        showphases = false;
+        cb11.checked(true);//trace
+        trace = true;
+        redraw();
+        //sndf();
+        rst();
+      }
+      else return;
+    } else {
+      // otherwise allow the function to fire again
+      exed = value;
+      return;
+    }
+  }
+})();//runonce()
+
+//nice !
+let onceNotCusSaw = (function() {
+  let exed = false;
+  return function(value) {
+    // if an argument is not present then
+    if(arguments.length == 0) {
+      if (!exed) {
+        shape = [];
+        shape = saw;
+        //setSawVals();
+        exed = true;
+        zoom = false;
+        x = 0;
+        time = 0;
+        //angle = 0;
+        s1c.value(70);//radius
+        s4c.value(0);//phase
+        s6c.value(100);//sidepad
+        s7c.value(375);//toppad
+        s8c.value(300);//sep
+        //reg modeS defaults
+        if(zoom === false) s2.value(1);//freq/speed
+        if(zoom === true) s2.value(0.2);//freq/speed
+        s3.value(25);//bins
+        bins = 25;
+        cb8.checked(false);//log
+        z.value(17);//zf
+        z2.value(5);//zr
+        logr = false;
+        cb9.checked(false);
+        cb3.checked(false);//orb
+        orbits = false;
+        cb2.checked(true);//vec
+        vectors = true;
+        z.style('display', 'none');
+        z2.style('display', 'none');
+        colchange = false;
+        cb10.style('display', 'none');
+        cb10.checked(false);
+        showphases = false;
+        cb11.checked(true);//trace
+        trace = true;
+        redraw();
+        //listening = false;
+        //sndf();
+        console.log('ooo');
+        rst();
+        //redraw();
+      }
+      else return;
+    } else {
+      // otherwise allow the function to fire again
+      exed = value;
+      return;
+    }
+  }
+})();//runonce()
+
+//nice !
+let onceNotCusSqu = (function() {
+  let exed = false;
+  return function(value) {
+    // if an argument is not present then
+    if(arguments.length == 0) {
+      if (!exed) {
+        shape = [];
+        shape = sqa;
+        //setSquareVals();
+        exed = true;
+        zoom = false;
+        x = 0;
+        time = 0;
+        s1c.value(100);//radius
+        s4c.value(0);//phase
+        s6c.value(160);//sidepad
+        s7c.value(200);//toppad
+        s8c.value(150);//sep
+        //reg modeS defaults
+        if(zoom === false) s2.value(1);//freq/speed
+        if(zoom === true) s2.value(0.2);//freq/speed
+        s3.value(25);//bins
+        bins = 25;
+        cb8.checked(false);//log
+        z.value(16);//zf
+        z2.value(9);//zr
+        logr = false;
+        cb9.checked(false);//zoom button
+        cb3.checked(false);//orb
+        orbits = false;
+        cb2.checked(true);//vec
+        vectors = true;
+        z.style('display', 'none');
+        z2.style('display', 'none');
+        colchange = false;
+        cb10.style('display', 'none');
+        cb10.checked(false);
+        showphases = false;
+        cb11.checked(true);//trace
+        trace = true;
+        redraw();
+        //sndf();
+        rst();
+      }
+      else return;
+    } else {
+      // otherwise allow the function to fire again
+      exed = value;
+      return;
+    }
+  }
+})();//runonce()
+
+//nice !
+let oncetest = (function() {
+  let exed = false;
+  return function(value) {
+    // if an argument is not present then
+    if(arguments.length == 0) {
+      if (!exed) {
+        exed = true;
+        test();//vec
+      }
+      else return;
+    } else {
+      // otherwise allow the function to fire again
+      exed = value;
+      return;
+    }
+  }
+})();//runonce()
+
+//orgdr.js
+function orgdr() {
+  frameRate(60);
+  //background (0);
+  // //"visable" boxes for buttons/text
+  drawBoxes();
+  //reassign for EZ.....but was much worse!
+  radius = s1c.value();
+  frequency = s2.value();
+  bins = s3.value();
+  phase = s4c.value();
+  rbv = rb.value();
+  sidepad = s6c.value();
+  toppad = s7c.value();
+  sep = s8c.value();
+  ps = s9.value();
+  lt = s10.value();
+  zoomFactor = z.value();
+  zoomRange = abs(map(z2.value(),0,bins,bins,0)); //others
+
+  //s3.value(data.length);
+  //bins = data.length;
+
+  //some defaults/overrides dom stuff
+  if(points) s9.style('display', 'unset');
+  if(vectors) s10.style('display', 'unset');
+  if(!points) s9.style('display', 'none');
+  if(!vectors) s10.style('display', 'none');
+  //if(frequency === 1) cb5.style('display', 'none');
+  if(zoom === true) cb5.style('display', 'none');
+  if(zoom === false) cb5.style('display', 'unset');
+  if(frequency != 1 && zoom === false) cb5.style('display', 'unset');
+  if(frequency === 1) cb5.style('display', 'none');
+  //if(showphases === false) cb10.style('display', 'none');
+  //if(showphases === true) cb10.style('display', 'unset');
+  // fr.position(windowWidth/2, windowHeight - 40);
+  // fl.position(windowWidth/2 - 200, windowHeight - 40);
+  // sk.position(windowWidth/2 + 200, windowHeight - 40);
+  // cbmf.position(0, windowHeight -25);
+
+  //get or set coeffs / slider values
+  if(!custom) {
+  for(let i = 0; i <= bins; i++) {
+      coeffs[i] = shape[i];
+      s5[i].value(coeffs[i+1]);
+    }//fi
+  }//4
+  if(custom) {
+  for(let i = 1; i <= bins+1; i++) {
+      //s5[i].value(shape[i]);
+      coeffs[i] = s5[i-1].value();
+    }//fi
+    coeffs[0] = 0;
+  }//4
+
+  //lissajous coords...path/trace
+  //px = sidepad + radius *
+  px = sumC(radians(time));
+  py = sumS(radians(time));
+  // px = fdftX(radians(time));
+  // py = fdftY(radians(time));
+  // //py = toppad + radius * sumS(radians(time));
+  //
+  //insert coords into array...trace/path
+  bpx.push((px));
+  bpy.push((py));
+
+  //wave
+  apx.push((sep-x));//
+  apy.push((py));
+
+  drawstuff();//all of the p5 "drawing"
+  //rndCol();
+
+  //radio button values
+  switch(rbv) {
+    case 'Sine':
+    setSineVals();
+    break;
+    case 'Pulse':
+    setPulseVals();
+    break;
+    case 'Triangle':
+    setTriVals();
+    break;
+    case 'Sawtooth':
+    setSawVals();
+    break;
+    case 'Square':
+    setSquareVals();
+    break;
+    case 'Custom':
+    setCustomVals();
+    break;
+    default:
+    //na
+  }//sw
+
+  predraw();
+
+  textout();//duh
+
+  lasso(time);//clocks / bar anis
+
+  //update per frame....
+  //2 seperate time/angles so they(x/y & waveY) can be reset/changed individually
+ time -= frequency;//trace
+
+ if(!absolute) x += .872664625; //makes speed of 1 "perfect" display ratio ?
+ if(absolute) x += frequency;
+
+  //tst 4 rst
+  if (time <= -360) {
+    // apx = [];
+    // apy = [];
+    bpx = [];
+    bpy = [];
+    time = 0;
+    //angle = 0;
+    rndCol();
+    //drawstuff();//no
+  }//fi
+
+  //mini rst
+  if (frequency >= 0.75) { // 2PI add slider ?
+    if (apx.length > 1000) {
+      apx.shift();
+      apy.shift();
+    }///
+  }//fi
+  //ruff hack for shriking wave when in very low speed...ugly but good enough?
+  //refine simply by divv'n up the buffer size range with more ifs if need be
+  if (frequency < 0.75) { // 2PI add slider ?
+    if (apx.length > 5000) {
+      apx.shift();
+      apy.shift();
+    }///
+  }//fi
+}//org()
+
+//orgsu.js
+function orgsu() {
+  b1 = createButton('Capture');
+  b1.position(180, windowHeight -20);
+  b1.style('background-color','#555');
+  b1.style('color','#000');
+  b1.mousePressed(snapf);
+  //rst
+  b2 = createButton('Reset');
+  b2.position(250, windowHeight -20);
+  b2.style('background-color','#555');
+  b2.style('color','#000');
+  b2.mousePressed(rst);
+  //log?
+  b3 = createButton('Log?');
+  b3.position(windowWidth-48, 160);
+  b3.style('background-color','#555');
+  b3.style('color','#000');
+  b3.mousePressed(alert1);
+  //?
+  b4 = createButton('Toggle Draw !');
+  b4.position(windowWidth-185, windowHeight - 20);
+  b4.style('background-color','#555');
+  b4.style('color','#400');
+  b4.mousePressed(alert2);
+  //custom radius
+  s1c = createSlider(0, 200, 100);
+  s1c.position(180, windowHeight - 50);
+  //s1c.style('display', 'none');
+  s1c.changed(pd);
+  //freq
+  s2 = createSlider(0, 5, 1, 0.1);
+  s2.position(330, windowHeight - 50);
+  //s2.changed(rst);
+  //# of bins
+  s3 = createSlider(0, 50, 25, 1);
+  s3.position(windowWidth - 375, windowHeight - 50);
+  s3.changed(rst);
+  //custom phase
+  s4c = createSlider(0, 360, 90, 45);
+  s4c.position(windowWidth - 220, windowHeight - 50);
+  //s4c.style('display', 'none');
+  s4c.changed(pd);
+  //xpos of obj
+  s6c = createSlider(0, windowWidth, 180, 1);
+  s6c.position(20, 130);
+  //s6c.style('display', 'none');
+  s6c.changed(pd);
+  //custom y pos
+  s7c = createSlider(50, windowHeight, 185, 1);
+  s7c.position(-18, 180);
+  //s7c.style('display', 'none');
+  s7c.style('rotate', '90');
+  s7c.style('width', '80px');
+  s7c.changed(pd);
+  //custom seperation between objects
+  s8c = createSlider(0, windowWidth / 2 - radius, 100, 1);
+  s8c.position(160, 130);
+  //s8c.style('display', 'none');
+  s8c.changed(pd);
+  //pts
+  s9 = createSlider(1, 8, 5, 1);
+  s9.position(80, windowHeight - 102);
+  s9.style('width', '90px');
+  //s9.changed(rst);
+  //line thickness
+  s10 = createSlider(1, 5, 2, 1);
+  s10.position(80, windowHeight - 76);
+  s10.style('width', '90px');
+  //s10.changed(rst);
+  //line thickness
+  basefreq = createSlider(40, 400, 220, 1);
+  basefreq.position(windowWidth/2+10, windowHeight - 60);
+  basefreq.style('display', 'none');
+  basefreq.style('width', '90px');
+  basefreq.style('rotate', '270');
+  basefreq.changed(sndf);
+  //line thickness
+  vol = createSlider(0, 0.75, 0.15, 0.00000000001);
+  vol.position(windowWidth/2+50, windowHeight - 60);
+  vol.style('display', 'none');
+  vol.style('width', '90px');
+  vol.style('rotate', '270');
+  vol.changed(sndf);
+  //zoom
+  z = createSlider(1, 100, 16, 0.001);
+  z.position(windowWidth - 350, 133);
+  z.style('width', '90px');
+  z.style('display', 'none');
+  //z2.changed(rst);
+  //zoom range
+  z2 = createSlider(0, 50, 5, 1);
+  z2.position(windowWidth - 185, 133);
+  z2.style('width', '90px');
+  z2.style('display', 'none');
+  //z2.changed(rst);
+  //waveShape selector
+  rb = createRadio();
+  rb.position(windowWidth - 64, windowHeight - 225);
+  //rb.option('Draw !');
+  rb.option('Sine');
+  rb.option('Pulse');
+  rb.option('Triangle');
+  rb.option('Sawtooth');
+  rb.option('Square');
+  rb.option('Custom');
+  rb.style('width', '20px');
+  rb.changed(rst);
+
+  cb1 = createCheckbox('Points', true);
+  cb1.position(5, windowHeight - 102);
+  cb1.style('background-color','#555');
+  cb1.style('color','#000');
+  cb1.style('padding','2px');
+  //cb1.option('Points');
+  cb1.changed(cb1f);
+
+  cb2 = createCheckbox('Vectors', true);
+  cb2.position(5, windowHeight - 76);
+  cb2.style('background-color','#555');
+  cb2.style('color','#000');
+  cb2.style('padding','2px');
+  cb2.changed(cb2f);
+
+  cb3 = createCheckbox('Orbits', false);
+  cb3.position(5, windowHeight - 50);
+  cb3.style('background-color','#555');
+  cb3.style('color','#000');
+  cb3.style('padding','2px');
+  cb3.changed(cb3f);
+
+  cb4 = createCheckbox('Sweep', false);
+  cb4.position(5, windowHeight - 24);
+  cb4.style('background-color','#555');
+  cb4.style('color','#000');
+  cb4.style('padding','2px');
+  cb4.changed(cb4f);
+
+  cb5 = createCheckbox('ABS', false);
+  cb5.position(400, windowHeight - 68);
+  cb5.changed(cb5f);
+
+  cb6 = createCheckbox('Fullscreen', false);
+  cb6.position(85, windowHeight - 22);
+  cb6.style('background-color','#555');
+  cb6.style('color','#000');
+  cb6.style('padding','2px');
+  cb6.changed(cb6f);
+
+  cb7 = createCheckbox('Pause', false);
+  cb7.position(85, windowHeight - 42);
+  cb7.style('background-color','#555');
+  cb7.style('color','#000');
+  cb7.style('padding','2px');
+  cb7.changed(cb7f);
+
+  cb8 = createCheckbox('Log', false);
+  cb8.position(windowWidth - 50, 133);
+  cb8.style('background-color','#555');
+  cb8.style('color','#000');
+  cb8.style('padding','2px');
+  cb8.changed(cb8f);
+  //zoom
+  cb9 = createCheckbox('Zoom', false);
+  cb9.position(windowWidth - 250, 133);
+  cb9.style('background-color','#555');
+  cb9.style('color','#000');
+  cb9.style('padding','2px');
+  cb9.changed(cb9f);
+  //phase show
+  cb10 = createCheckbox('Phases', false);
+  cb10.position(5, windowHeight-154);
+  cb10.style('background-color','#555');
+  cb10.style('color','#000');
+  cb10.style('padding','2px');
+  cb10.changed(cb10f);
+  //trace
+  cb11 = createCheckbox('Trace', true);
+  cb11.position(5, windowHeight-128);
+  cb11.style('background-color','#555');
+  cb11.style('color','#000');
+  cb11.style('padding','2px');
+  cb11.changed(cb11f);
+  //list
+  cb12 = createCheckbox('Listen', false);
+  cb12.position(windowWidth/2-20, windowHeight-25);
+  cb12.style('background-color','#555');
+  cb12.style('color','#000');
+  cb12.style('padding','2px');
+  cb12.changed(cb12f);
+
+  //initial cfg/setup
+  sinef();
+  pulsef();
+  sawf();
+  squaref();
+  trif();
+  shape = saw;
+  rb.value('Sawtooth');
+  //must init at max 50 1st in createslider() ?
+  s3.value(25);
+  angleMode(RADIANS);
+  rst();//run once
+}//orhsu()
+
+//reset.js
+//reset
+function rst() {
+  background(0);//NOT cls !
+  //new random colors but always max amount
+  //randomSeed(254873);
+  rndCol();
+  //clear/empty arrs
+  x = 0;
+  //angle = 0;
+  time = 0;
+  segsX = [];
+  segsY = [];
+  segsXz = [];
+  segsYz = [];
+  segsX[0] = 0;//betterway ?
+  segsY[0] = 0;
+  segsXz[0] = 0;//betterway ?
+  segsYz[0] = 0;
+  coeffs = [];
+  apx = [];
+  apy = [];
+  bpx = [];
+  bpy = [];
+  trax = [];
+  tray = [];
+  wave = [];
+  //dxy = [];
+  //px = 0;
+  //py = 0;
+  //phases = [];
+
+  //must actally delete to change # of
+  for(let i = s5.length-1; i >= 0; i--) {
+    //ah Ha !
+    s5[i].remove();
+  }//4
+  for(let i = phases.length-1; i >= 0; i--) {
+    phases[i].remove();
+  }//4
+
+  //ah ha needs funcs
+  z2.elt.max = (bins);//others
+
+  //phases individual
+  for(let i = 0; i <= bins+1; i++) {
+    phases[i] = createSlider(0, 360, 0, 0.0000000001);
+    phases[i].position(floor(windowWidth/bins*i-22)+8, windowHeight / 2 );
+    phases[i].style('rotate', 270);
+    phases[i].style('width', '60px');
+    phases[i].style('display', 'none');
+    if(showphases === true) phases[i].style('display', 'unset');//yes
+    if(showphases === false) phases[i].style('display', 'none');//yes
+    if(isDrawing === true) phases[i].style('display', 'none');
+    //if(zoom === false)
+    phases[i].changed(pd);
+  }//4
+  //main
+  if(logr === false) {
+    for(let i = 0; i <= bins+1; i++) {
+      s5[i] = createSlider(0, 1, shape[i], 0.0000000001);
+      s5[i].position(floor(windowWidth/bins*i-22), 30);
+      s5[i].style('rotate', 270);
+      s5[i].style('width', '80px');
+      //if(zoom === false)
+      s5[i].changed(pd);
+      //if(isDrawing === true) s5[i].style('display', 'none');
+    }//4
+  }//fi
+  if(logr === true) {
+    for(let i = 0; i <= bins+1; i++) {
+      //s5[i] = createSlider(0, 1*(1/sqrt(i+1)), shape[i], 0.0000000001);
+      s5[i] = createSlider(0, 1*(1/(i+1)), shape[i], 0.0000000001);
+      s5[i].position(floor(windowWidth/bins*i-22), 30);
+      s5[i].style('rotate', 270);
+      s5[i].style('width', '80px');
+      //if(zoom === false)
+      s5[i].changed(pd);
+      //if(isDrawing === true) s5[i].style('display', 'none');
+    }//4
+  }//fi
+
+cb7.checked(false);//for unpause
+sndf();
+predraw();
+loop();
+pd();
+}//rst
+
+//resize.js
+//better behavior
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  //help avoid scrollbars
+  cnv.style('display', 'block');
+  b1.position(180, windowHeight -20);//cap
+  b2.position(250, windowHeight -20);//rst
+  b3.position(windowWidth-48, 160);//list
+  b4.position(windowWidth-185, windowHeight - 20);//?
+  rb.position(windowWidth - 64, windowHeight - 225);//wave opts
+  //p5 bug ?
+  cb1.position(5, windowHeight - 102);//pts
+  cb2.position(5, windowHeight - 76);//vex
+  cb3.position(5, windowHeight - 50);//orb
+  cb4.position(5, windowHeight - 24);//sweep
+  cb5.position(400, windowHeight - 68);//abs
+  cb6.position(85, windowHeight - 22);//fs
+  cb7.position(85, windowHeight - 42);//pause
+  cb8.position(windowWidth - 50, 133);//log
+  cb9.position(windowWidth - 250, 133);//zoom
+  cb10.position(5, windowHeight-154);//phases
+  cb11.position(5, windowHeight-128);//trace
+  cb12.position(windowWidth/2-20, windowHeight-25);//list
+  //slids
+  s1c.position(180, windowHeight - 50);//radius
+  s2.position(330, windowHeight - 50);//freq/speed
+  s3.position(windowWidth - 375, windowHeight - 50);//bins
+  s4c.position(windowWidth - 220, windowHeight - 50);//phase
+  //the slider array
+  for(let i = 0; i < bins; i++) {
+    s5[i].position(floor(windowWidth/bins*i-32), 45);
+    phases[i].position(floor(windowWidth/bins*i-22)+8, windowHeight / 2 );
+  }//4
+  s6c.position(20, 130);//x pos
+  s7c.position(-18, 180);//y pos
+  s8c.position(160, 130);//seperation
+  s9.position(80, windowHeight - 102);//pointsize
+  s10.position(80, windowHeight - 76);//line thickness
+  basefreq.position(windowWidth/2+10, windowHeight - 60);
+  vol.position(windowWidth/2+50, windowHeight - 60);
+  z.position(windowWidth - 350, 133);
+  z2.position(windowWidth - 185, 133);
+
+//draw
+fr.position(windowWidth/2, windowHeight - 55);
+fl.position(windowWidth/2 - 200, windowHeight - 55);
+sk.position(windowWidth/2 + 200, windowHeight - 55);
+cbmf.position(windowWidth/2 -160, 25);
+
+  pd();
+  rst();
+  test();
+}//wr
+
+
+//sums.js
+//sigma
+function sumMaxRadius(arr) {
+  let sum = 0;
+  for (let i = 0; i < arr.length; i++) {
+    sum += arr[i];
+  }//4
+  return (sum);
+}//sum
+
+function sumCz(ang) {
+  let sum = 1;
+  for (let i = 1; i <= bins; i++) {
+    if(i < zoomRange + 1) {
+      sum += 0;
+    } else {
+      sum += coeffs[i-1] * cos(i*ang + radians(phase) + radians(phases[i-1].value())) * zoomFactor;
+    }//els
+    segsXz[i] = (sum);
+  }//4
+}//sum
+
+function sumSz(ang) {
+  let sum = 1;
+  for (let i = 1; i <= bins; i++) {
+    if(i < zoomRange + 1) {
+      sum += 0;
+    } else {
+      sum += coeffs[i-1] * sin(i*ang + radians(phase) + radians(phases[i-1].value())) * zoomFactor;
+    }//els
+    segsYz[i] = (sum);
+  }//4
+}//sum
+
+//the guts a simple math notation Sigma/summation
+function sumC(ang) {
+  segsX = [];
+  segsX[0] = 0;
+  let sum = 0;
+  for (let i = 0; i <= bins; i++) {
+    sum += coeffs[i] * radius * cos(i*ang + radians(phase) + radians(phases[i].value()));
+    segsX[i+1] = (sum);
+  }//4
+  return (sum);
+}//sum
+
+function sumS(ang) {
+  segsY = [];
+  segsY[0] = 0;
+  let sum = 0;
+  for (let i = 0; i <= bins; i++) {
+    sum += coeffs[i] * radius * sin(i*ang + radians(phase) + radians(phases[i].value()));
+    segsY[i+1] = (sum);
+  }//4
+  return (sum);
+}//sum
+
+//text.js
+
+function textout() {
+  strokeWeight(1);
+  noStroke();
+  fill(0,200,200);
+  //if(custom)
+  text('Radius = '+radius, 210, windowHeight - 55);
+  text('Speed = '+frequency, 332, windowHeight - 55);
+  if (listening === true) text('Freq = '+basefreq.value(), windowWidth/2 -18, windowHeight - 30);
+  let v = map(vol.value(),0,0.75,0,10);
+  if (listening === true) text('vol = '+int(v), windowWidth/2+75, windowHeight - 100);
+  //less jerky should avg
+  text('FPS = '+int(frameRate()), windowWidth - 250, windowHeight -5);
+  if(frequency !== 1 ) {
+    fill(255,0,0);
+    text('Speed = '+frequency, 332, windowHeight - 55);
+  }//fi
+  fill(0,200,200);
+  text('Bins = '+bins, windowWidth - 335, windowHeight - 55);
+  //if(custom)
+  text('GroupPhase = '+int(phase), windowWidth - 205, windowHeight - 55);
+  //if(custom && !zoom)
+  text('Seperation = '+int(sep), 180, 165);
+  //if(custom && !zoom)
+  text('X pos = '+int(sidepad), 50, 165);
+  //if(custom && !zoom)
+  text('Y pos = '+int(toppad), 50, 180);
+  if(zoom) text('Zoom = '+int(zoomFactor)+'X', windowWidth - 343, 166);
+  if(zoom) text('Last '+int(bins-zoomRange)+' Segs', windowWidth - 173, 166);
+  for(let i = 1; i <= bins; i++) {
+    //tricky
+    text(i+'X',-7+floor(windowWidth/bins*(i-1))+18, 130);
+    if(showphases === true) text(i+'X',-7+floor(windowWidth/bins*(i-1))+18, windowHeight / 2 + 70);
+  }//4
+  fill(255,0,0);
+  if(custom) text('^Amplitude Sliders Active^', windowWidth / 2 - 40, 145);
+  if(showphases === true) text('^Phase Sliders Active^', windowWidth / 2 - 40, windowHeight / 2 + 85);
+}//to()
+
+//draw boxes
+function drawBoxes() {
+  noStroke();
+  fill(75);
+  //bottum right wave opts
+  if(!isDrawing) rect(windowWidth - 70, windowHeight - 227, 75, 227);
+  //bottum left display opts
+  //rect(-5, windowHeight - 138, 85, 138);
+  if(custom === false || isDrawing) {
+    fill(0);
+    rect(-5, windowHeight - 138, 85, 20);
+  }//fi
+  //0 x
+  stroke(200,50);
+  if(zoom === false && isDrawing === false) line(0, toppad, windowWidth, toppad);
+  noStroke();
+  fill(75);
+  //absolute
+  if(frequency != 1 && zoom === false) rect(400, windowHeight - 68, 55, 22);
+  //zoom
+  //rect(windowWidth - 250, 133, 60, 21);
+  //logr
+  //rect(windowWidth - 50, 133, 50, 21);
+  //fs & pause
+  //rect(80, windowHeight - 44, 94, 45);
+  //greyout slider array when not in custom mode after rest()/s5 array draw
+  if(!custom && isDrawing === false) {
+    stroke(0);
+    fill(75, 75);
+    rect(-2, 0, windowWidth+2, 115);
+  }//fi
+  //seperators
+  noStroke();
+  fill(255, 0, 0, 50);
+  //custom
+  if(!isDrawing) rect(windowWidth - 70, windowHeight - 18, 80, 20);
+  //phases
+  //if(custom === true && !isDrawing) rect(0, windowHeight - 138, 80, 23);
+  strokeWeight(2);
+  stroke(0);
+  // line(windowWidth - 75, windowHeight - 188, windowWidth, windowHeight - 188);
+  // line(windowWidth - 75, windowHeight - 150, windowWidth, windowHeight - 150);
+  // line(windowWidth - 75, windowHeight - 112, windowWidth, windowHeight - 112);
+  // line(windowWidth - 75, windowHeight - 75, windowWidth, windowHeight - 75);
+  // line(windowWidth - 75, windowHeight - 37, windowWidth, windowHeight - 37);
+  // line(80, windowHeight - 150, 80, windowHeight);
+}//db()
+
+//log?
+function alert1() {
+alert("Since the input Sliders(amplitude\\coefficients) would \'normally\'\
+ have values that decreased in order and all summed to 1, It would be nearly\
+ impossible to input the very small numbers that the higher harmonics would\
+ typically have, such as 0.003 for instance, into a slider with a range of\
+ 0-1. So the sliders ranges are set to 0 - 1/n when log is checked. This\
+ is quite useful when using the amplitude sliders while in custom mode. For\
+ instance, to roll your own square wave simply set all of the even valued\
+ amplitude sliders to 0 and all of the odd valued sliders to 1 & the phase to\
+ 0! Or for a triangle wave, again set all of the even's to 0 & the bins to\
+ 9(for example) & the odds to 80%, 30%, 20%, 10% & 5%(roughly), & the phase\
+ to 90. & for a sawtooth simply set all sliders to max & the phase to 0 etc.");
+}
+//alert1()
+
+//?
+function alert2() {
+//alert('Send Comments\\Suggestions etc. to: realcygnus@gmail.com');
+noLoop();
+isDrawing = !isDrawing;
+if(isDrawing === false) frameRate(60);
+test();
+//location.reload(false);
+//redraw();
+loop();
+}//alert2()
+
+//test.js
+function test() {
+  if(isDrawing === false) {
+    // fr.style('display', 'unset');
+    // fl.style('display', 'unset');
+    // sk.style('display', 'unset');
+    // cbmf.style('display', 'unset');
+    fr.style('display', 'none');
+    fl.style('display', 'none');
+    sk.style('display', 'none');
+    cbmf.style('display', 'none');
+
+    //b1.style('display', 'unset');
+    b2.style('display', 'unset');
+    b3.style('display', 'unset');
+    //b4.style('display', 'none');
+    s1c.style('display', 'unset');
+    s2.style('display', 'unset');
+    s3.style('display', 'unset');
+    s4c.style('display', 'unset');
+    //s5.style('display', 'none');
+    s6c.style('display', 'unset');
+    s7c.style('display', 'unset');
+    s8c.style('display', 'unset');
+    //s9.style('display', 'unset');
+    //s10.style('display', 'unset');
+    if(listening) basefreq.style('display', 'unset');
+    if(listening) vol.style('display', 'unset');
+    if(zoom) z.style('display', 'unset');
+    if(zoom) z2.style('display', 'unset');
+    rb.style('display', 'unset');
+    // cb1.style('display', 'unset');
+    // cb2.style('display', 'unset');
+    // cb3.style('display', 'unset');
+    cb4.style('display', 'unset');
+    cb5.style('display', 'unset');
+    // cb6.style('display', 'unset');
+    // cb7.style('display', 'unset');
+    cb8.style('display', 'unset');
+    cb9.style('display', 'unset');
+    if(custom === true) cb10.style('display', 'unset');
+    cb11.style('display', 'unset');
+    cb12.style('display', 'unset');
+
+    for(let i = 0; i <= bins+1; i++) {
+      s5[i].style('display', 'unset');
+      if(showphases) phases[i].style('display', 'unset');
+    }//4
+  }//fi
+
+  if(isDrawing === true) {
+    cb12.checked(false);
+    listening = false;
+    sndf();
+    cb10.checked(false);
+    showphases = false;
+    //rst();
+
+    fr.style('display', 'none');
+    fl.style('display', 'none');
+    sk.style('display', 'none');
+    cbmf.style('display', 'none');
+
+    //b1.style('display', 'none');
+    b2.style('display', 'none');
+    b3.style('display', 'none');
+    //b4.style('display', 'none');
+    s1c.style('display', 'none');
+    s2.style('display', 'none');
+    s3.style('display', 'none');
+    s4c.style('display', 'none');
+    //s5.style('display', 'none');
+   s6c.style('display', 'none');
+   s7c.style('display', 'none');
+   s8c.style('display', 'none');
+    //s9.style('display', 'none');
+    //s10.style('display', 'none');
+    //if(listening)
+    basefreq.style('display', 'none');
+    //if(listening)
+    vol.style('display', 'none');
+    if(zoom) z.style('display', 'none');
+    if(zoom) z2.style('display', 'none');
+    rb.style('display', 'none');
+    // cb1.style('display', 'none');
+    // cb2.style('display', 'none');
+    // cb3.style('display', 'none');
+    cb4.style('display', 'none');
+    cb5.style('display', 'none');
+    // cb6.style('display', 'none');
+    // cb7.style('display', 'none');
+    cb8.style('display', 'none');
+    cb9.style('display', 'none');
+    cb10.style('display', 'none');
+    cb11.style('display', 'none');
+    cb12.style('display', 'none');
+
+    for(let i = 0; i <= bins+1; i++) {
+      s5[i].style('display', 'none');
+      phases[i].style('display', 'none');
+    }//4
+  } //fi
+}//tst()
+
+//wavals.js
+function setSineVals() {
+  //sinef();
+  custom = false;
+  once(false);
+  onceNotCusSin();
+  onceNotCusPul(false);
+  onceNotCusTri(false);
+  onceNotCusSaw(false);
+  onceNotCusSqu(false);
+  //s1c.style('display', 'none');
+  //s4c.style('display', 'none');
+}//sisv()
+
+function setPulseVals() {
+  //pulsef();
+  custom = false;
+  once(false);
+  onceNotCusSin(false);
+  onceNotCusPul();
+  onceNotCusTri(false);
+  onceNotCusSaw(false);
+  onceNotCusSqu(false);
+  //s1c.style('display', 'none');
+  //s4c.style('display', 'none');
+}//sisv()
+
+function setTriVals() {
+  //trif();
+  custom = false;
+  once(false);
+  onceNotCusSin(false);
+  onceNotCusPul(false);
+  onceNotCusTri();
+  onceNotCusSaw(false);
+  onceNotCusSqu(false);
+  //s1c.style('display', 'none');
+  //s4c.style('display', 'none');
+}//sisv()
+
+function setSawVals() {
+  //sawf();
+  custom = false;
+  once(false);
+  onceNotCusSin(false);
+  onceNotCusPul(false);
+  onceNotCusTri(false);
+  onceNotCusSaw();
+  onceNotCusSqu(false);
+  //s1c.style('display', 'none');
+  //s4c.style('display', 'none');
+}//sisv()
+
+function setSquareVals() {
+  //squaref();
+  custom = false;
+  once(false);
+  onceNotCusSqu();
+  onceNotCusSin(false);
+  onceNotCusPul(false);
+  onceNotCusTri(false);
+  onceNotCusSaw(false);
+}//sisv()
+
+function setCustomVals() {
+  custom = true;
+  once();
+  onceNotCusSin(false);
+  onceNotCusPul(false);
+  onceNotCusTri(false);
+  onceNotCusSaw(false);
+  onceNotCusSqu(false);
+}//sicv()
+
+
+</script>
+
+  </body>
+
+</html>
+
