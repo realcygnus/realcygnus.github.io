@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Async v7 — spherical circle intersections (triple visible) + alt/az rays</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    html,body { height:100%; margin:0; overflow:hidden; background:#0b1220; color:#ddd; font-family: Arial, sans-serif; }
+    canvas { display:block; width:100%; height:100%; }
+    #controls { position: absolute; left: 12px; top: 12px; z-index: 9999; display:flex; gap:8px; }
+    .btn { background:#222; color:#ddd; border:1px solid #444; padding:8px 10px; border-radius:6px; cursor:pointer; font-size:13px; }
+    .btn:hover { background:#2b2b2b; }
+    #status {
+      position: absolute; left: 12px; bottom: 12px; z-index: 9998;
+      background: rgba(0,0,0,0.6); color:#ddd; padding:8px; border-radius:6px; font-family: monospace; font-size:12px; max-width: 60vw;
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <button id="computeBtn" class="btn">Compute intersections</button>
+    <button id="clearBtn" class="btn">Clear intersections</button>
+    <label class="btn" style="display:flex;align-items:center;gap:6px"><input id="autoUpdate" type="checkbox" checked/> Auto-update</label>
+  </div>
+  <div id="status">Status: ready</div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
+  <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
+
+  <script>
+  (function () {
+    const statusEl = document.getElementById('status');
+    const setStatus = s => { statusEl.textContent = 'Status: ' + s; };
+
+    // CONFIG
+    const EARTH_RADIUS_KM = 6371;
+    const GREAT_CIRCLE_KM = Math.PI/2 * EARTH_RADIUS_KM;
+
+    // === Per-circle editable color constants (edit these manually) ===
+    // Circle perimeter (line) colors
+    const CIRCLE1_PERIM_COLOR = 0x111111;
+    const CIRCLE2_PERIM_COLOR = 0x111111;
+    const CIRCLE3_PERIM_COLOR = 0x111111;
+    // Marker (sphere) colors
+    const MARKER1_COLOR = 0x8888ff;
+    const MARKER2_COLOR = 0x88ff88;
+    const MARKER3_COLOR = 0xffcc88;
+    // Zenith (original) ray colors
+    const ZENITH_RAY1_COLOR = 0x999999;
+    const ZENITH_RAY2_COLOR = 0x999999;
+    const ZENITH_RAY3_COLOR = 0x999999;
+    // Alt/Az ray colors
+    const ALTRAY1_COLOR = 0x00ccff;
+    const ALTRAY2_COLOR = 0x00ccff;
+    const ALTRAY3_COLOR = 0x00ccff;
+    // ================================================================
+
+    const RAY_LENGTH_KM = 100000;
+    const MARKER_SIZE = 1.2;
+    const TRIPLE_SAMPLES_PER_CIRCLE = 128;
+    const LENS_PERIMETER_SAMPLES = 144;
+    const PAIRWISE_OFFSET = 1.75;    // adjust if z-fighting observed
+    const TRIPLE_OFFSET = 0.64;
+    const SCENE_EARTH_RADIUS = 100;
+    const KM_TO_SCENE = SCENE_EARTH_RADIUS / EARTH_RADIUS_KM;
+
+    if (typeof THREE === 'undefined') { console.error('three.js not loaded'); return; }
+
+    // renderer/scene/camera
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.setClearColor(0x222222);
+    document.body.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 2000);
+    const initialDistance = 360;
+    let cameraSpherical = { theta:0, phi: Math.PI*0.45, radius: initialDistance };
+    const minRadius = 120, maxRadius = 1200;
+    function updateCameraFromSpherical(){ const r = cameraSpherical.radius, phi = cameraSpherical.phi, theta = cameraSpherical.theta; const sinPhi = Math.sin(phi); camera.position.set(r*sinPhi*Math.cos(theta), r*Math.cos(phi), r*sinPhi*Math.sin(theta)); camera.lookAt(0,0,0); }
+    updateCameraFromSpherical();
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.45));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.0); dirLight.position.set(120,200,100); scene.add(dirLight);
+    const fill = new THREE.DirectionalLight(0xffffff, 0.25); fill.position.set(-80,-40,-120); scene.add(fill);
+
+    // earth mesh (texture optional)
+    const texLoader = new THREE.TextureLoader();
+    const earthMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 8 });
+    texLoader.load('https://raw.githubusercontent.com/jeromeetienne/threex.planets/master/images/earthmap1k.jpg',
+      (map) => { map.encoding = THREE.sRGBEncoding; earthMat.map = map; earthMat.needsUpdate = true; setStatus('Earth texture loaded'); },
+      undefined,
+      (err) => { console.warn('earth texture failed', err); setStatus('Earth texture failed'); }
+    );
+    const earth = new THREE.Mesh(new THREE.SphereGeometry(SCENE_EARTH_RADIUS, 64, 64), earthMat);
+    scene.add(earth);
+
+    // math helpers
+    const degToRad = d => d * Math.PI/180;
+    const radToDeg = r => r * 180/Math.PI;
+    function latLonUnitVector(latDeg, lonDeg){
+      const lat = degToRad(latDeg), lon = degToRad(lonDeg);
+      const x = Math.cos(lat) * Math.cos(lon);
+      const y = Math.sin(lat);
+      const z = Math.cos(lat) * Math.sin(lon);
+      return new THREE.Vector3(x,y,z).normalize();
+    }
+    function buildBasisFor(C){
+      const arbitrary = Math.abs(C.y) < 0.9 ? new THREE.Vector3(0,1,0) : new THREE.Vector3(1,0,0);
+      const u = new THREE.Vector3().crossVectors(arbitrary, C).normalize();
+      const v = new THREE.Vector3().crossVectors(C, u).normalize();
+      return { u, v };
+    }
+    function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+    function pointInCap(p,n,a){ return n.dot(p) >= Math.cos(a) - 1e-10; }
+    function yieldNow(){ return new Promise(r => setTimeout(r,0)); }
+
+    // visuals
+    function createSphericalCircleGroup(lat, lon, radiusKm, colorHex, opts={segments:128}) {
+      const angularRadius = Math.min(Math.max(0, radiusKm) / EARTH_RADIUS_KM, Math.PI - 1e-6);
+      const segments = opts.segments || 128;
+      const group = new THREE.Group();
+      if (angularRadius <= 0) return group;
+      const C = latLonUnitVector(lat, lon);
+      const { u, v } = buildBasisFor(C);
+      const pts = [];
+      for (let i=0;i<segments;i++){
+        const alpha = (i/segments) * Math.PI*2;
+        const pUnit = new THREE.Vector3().copy(C).multiplyScalar(Math.cos(angularRadius))
+          .addScaledVector(u, Math.cos(alpha)*Math.sin(angularRadius))
+          .addScaledVector(v, Math.sin(alpha)*Math.sin(angularRadius)).normalize();
+        pts.push(pUnit.clone().multiplyScalar(SCENE_EARTH_RADIUS));
+      }
+      const lineGeom = new THREE.BufferGeometry().setFromPoints(pts.concat([pts[0]]));
+      const line = new THREE.Line(lineGeom, new THREE.LineBasicMaterial({ color: colorHex }));
+      group.add(line);
+      return group;
+    }
+
+    // create marker and two rays:
+    // - existing zenith ray along C (controlled by showRay as before)
+    // - NEW alt/az ray computed from altDeg & azDeg in the local basis and always updated by rebuild
+    // Updated to accept separate zenith and alt-ray colors
+    function createMarkerAndRay(lat, lon, markerColorHex, zenithRayColorHex, altRayColorHex, altDeg = 0, azDeg = 0) {
+      const group = new THREE.Group();
+      const C = latLonUnitVector(lat, lon);
+      // Build robust local tangent basis: north then east
+      // Try projecting world 'up' onto the tangent plane to get a stable 'north' direction.
+      const worldUp = new THREE.Vector3(0, 1, 0);
+      let north = new THREE.Vector3().copy(worldUp).sub(C.clone().multiplyScalar(C.dot(worldUp)));
+      if (north.lengthSq() < 1e-8) {
+        // near the poles the worldUp projection is degenerate — fall back to X axis projection
+        const worldX = new THREE.Vector3(1, 0, 0);
+        north = new THREE.Vector3().copy(worldX).sub(C.clone().multiplyScalar(C.dot(worldX)));
+      }
+      north.normalize();
+      const east = new THREE.Vector3().crossVectors(C, north).normalize(); // east = C x north (increasing lon)
+
+      const offset = 0.6;
+      const sphere = new THREE.Mesh(new THREE.SphereGeometry(Math.max(0.0001, MARKER_SIZE), 12, 10),
+        new THREE.MeshStandardMaterial({ color: markerColorHex, emissive: markerColorHex, emissiveIntensity: 0.25 }));
+      sphere.position.copy(C.clone().multiplyScalar(SCENE_EARTH_RADIUS + offset));
+      group.add(sphere);
+
+      // Original zenith ray (along local normal) — uses zenithRayColorHex
+      const rayStart = C.clone().multiplyScalar(SCENE_EARTH_RADIUS + offset + 0.05);
+      const rayEnd = C.clone().multiplyScalar(SCENE_EARTH_RADIUS + offset + Math.max(1e-3, RAY_LENGTH_KM) * KM_TO_SCENE);
+      const pos = new Float32Array([rayStart.x, rayStart.y, rayStart.z, rayEnd.x, rayEnd.y, rayEnd.z]);
+      const geom = new THREE.BufferGeometry(); geom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      const ray = new THREE.Line(geom, new THREE.LineBasicMaterial({ color: zenithRayColorHex }));
+      group.add(ray);
+
+      // NEW alt/az ray:
+      // User-facing: altDeg in [0,90] where 0 = tangent, 90 = zenith.
+      // Internally compute angle from normal = (90 - altDeg).
+      const altFromNormalRad = degToRad(90 - clamp(altDeg, 0, 90));
+      const azRad = -degToRad(((azDeg % 360) + 360) % 360); // NEGATED to make az increase clockwise
+      const dir = new THREE.Vector3().copy(C).multiplyScalar(Math.cos(altFromNormalRad))
+        .addScaledVector(north, Math.cos(azRad) * Math.sin(altFromNormalRad))
+        .addScaledVector(east, Math.sin(azRad) * Math.sin(altFromNormalRad)).normalize();
+
+      const altStart = C.clone().multiplyScalar(SCENE_EARTH_RADIUS + offset + 0.05);
+      const altEnd = altStart.clone().addScaledVector(dir, Math.max(1e-3, RAY_LENGTH_KM) * KM_TO_SCENE);
+      const altPos = new Float32Array([altStart.x, altStart.y, altStart.z, altEnd.x, altEnd.y, altEnd.z]);
+      const altGeom = new THREE.BufferGeometry(); altGeom.setAttribute('position', new THREE.BufferAttribute(altPos, 3));
+      const altRay = new THREE.Line(altGeom, new THREE.LineBasicMaterial({ color: altRayColorHex }));
+      group.add(altRay);
+
+      function dispose() {
+        try { sphere.geometry.dispose(); sphere.material.dispose(); } catch (e) {}
+        try { geom.dispose(); ray.material.dispose(); } catch (e){}
+        try { altGeom.dispose(); altRay.material.dispose(); } catch (e){}
+      }
+
+      return { group, sphere, ray, altRay, dispose };
+    }
+
+    function createSphericalCapMesh(lat, lon, radiusKm, colorHex, offsetOut = PAIRWISE_OFFSET, segments = 48, opacity = 0.5) {
+      const angularRadius = Math.min(Math.max(0, radiusKm) / EARTH_RADIUS_KM, Math.PI - 1e-6);
+      if (angularRadius <= 0) return null;
+      const C = latLonUnitVector(lat, lon);
+      const { u, v } = buildBasisFor(C);
+      const pts = [];
+      for (let i=0;i<segments;i++){
+        const alpha = (i/segments) * Math.PI*2;
+        const pUnit = new THREE.Vector3().copy(C).multiplyScalar(Math.cos(angularRadius))
+          .addScaledVector(u, Math.cos(alpha)*Math.sin(angularRadius))
+          .addScaledVector(v, Math.sin(alpha)*Math.sin(angularRadius)).normalize();
+        pts.push(pUnit.clone().multiplyScalar(SCENE_EARTH_RADIUS + offsetOut));
+      }
+      const centerPos = C.clone().multiplyScalar(SCENE_EARTH_RADIUS + offsetOut);
+      const verts = [ centerPos.x, centerPos.y, centerPos.z ];
+      for (let i=0;i<pts.length;i++) verts.push(pts[i].x, pts[i].y, pts[i].z);
+      const indices = [];
+      for (let i=0;i<pts.length;i++) indices.push(0, i+1, (i+1)%pts.length + 1);
+      const buf = new THREE.BufferGeometry();
+      buf.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+      buf.setIndex(indices);
+      buf.computeVertexNormals();
+      const mat = new THREE.MeshStandardMaterial({
+        color: colorHex,
+        opacity: opacity,
+        transparent: true,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -4
+      });
+      const mesh = new THREE.Mesh(buf, mat);
+      mesh.renderOrder = 1;
+      return mesh;
+    }
+
+    // intersections math
+    function intersectCirclePerimeters(n1,a1,n2,a2){
+      const g = clamp(n1.dot(n2), -1, 1);
+      const EPS = 1e-12;
+      if (Math.abs(Math.abs(g) - 1) < EPS) return [];
+      const det = 1 - g*g;
+      const c1 = Math.cos(a1), c2 = Math.cos(a2);
+      const x = (c1 - g*c2) / det;
+      const y = (c2 - g*c1) / det;
+      const tmp = x*x + y*y + 2*g*x*y;
+      const z2 = 1 - tmp;
+      if (z2 < -1e-8) return [];
+      const w = new THREE.Vector3().crossVectors(n1, n2);
+      if (w.length() < 1e-12) return [];
+      const wUnit = w.normalize();
+      const sqrtz = Math.sqrt(Math.max(0, z2));
+      const pBase = new THREE.Vector3().copy(n1).multiplyScalar(x).addScaledVector(n2, y);
+      const p1 = pBase.clone().addScaledVector(wUnit, sqrtz).normalize();
+      const p2 = pBase.clone().addScaledVector(wUnit, -sqrtz).normalize();
+      return [p1, p2];
+    }
+
+    // perimeter-sampling lens builder (returns scene-scaled polygon points)
+    function buildLensPolygonFromTwoIntersections(ci, cj, pA, pB, wantOffset = PAIRWISE_OFFSET, samplesPerArc = LENS_PERIMETER_SAMPLES) {
+      const C1 = ci.C, a1 = ci.a;
+      const C2 = cj.C, a2 = cj.a;
+      const { u: u1, v: v1 } = buildBasisFor(C1);
+      const { u: u2, v: v2 } = buildBasisFor(C2);
+
+      function samplePerimeter(C, u, v, a, samples) {
+        const out = [];
+        for (let i=0;i<samples;i++){
+          const alpha = (i/samples) * Math.PI*2;
+          const pUnit = new THREE.Vector3().copy(C).multiplyScalar(Math.cos(a))
+            .addScaledVector(u, Math.cos(alpha)*Math.sin(a))
+            .addScaledVector(v, Math.sin(alpha)*Math.sin(a)).normalize();
+          out.push(pUnit);
+        }
+        return out;
+      }
+      function findClosestIndex(samples, p) {
+        let best = 0, bestAng = Infinity;
+        for (let i=0;i<samples.length;i++){
+          const ang = samples[i].angleTo(p);
+          if (ang < bestAng) { bestAng = ang; best = i; }
+        }
+        return best;
+      }
+      function forwardSegment(samples, idx0, idx1) {
+        const res = [];
+        let i = idx0;
+        res.push(samples[i]);
+        while (i !== idx1) { i = (i + 1) % samples.length; res.push(samples[i]); }
+        return res;
+      }
+      function majorityInside(segment, otherCap) {
+        let inside = 0;
+        for (let p of segment) if (pointInCap(p, otherCap.C, otherCap.a)) inside++;
+        return inside > (segment.length/2);
+      }
+
+      const perim1 = samplePerimeter(C1, u1, v1, a1, samplesPerArc);
+      const perim2 = samplePerimeter(C2, u2, v2, a2, samplesPerArc);
+
+      const idxA1 = findClosestIndex(perim1, pA), idxB1 = findClosestIndex(perim1, pB);
+      const idxA2 = findClosestIndex(perim2, pA), idxB2 = findClosestIndex(perim2, pB);
+
+      const seg1f = forwardSegment(perim1, idxA1, idxB1);
+      const seg1b = forwardSegment(perim1, idxB1, idxA1);
+      const seg1 = majorityInside(seg1f, cj) ? seg1f : seg1b;
+      seg1[0] = pA.clone(); seg1[seg1.length-1] = pB.clone();
+
+      const seg2f = forwardSegment(perim2, idxB2, idxA2);
+      const seg2b = forwardSegment(perim2, idxA2, idxB2);
+      const seg2 = majorityInside(seg2f, ci) ? seg2f : seg2b;
+      seg2[0] = pB.clone(); seg2[seg2.length-1] = pA.clone();
+
+      const all = seg1.concat(seg2);
+      const unique = [];
+      for (const p of all) {
+        const nu = p.clone().normalize();
+        let dup = false;
+        for (const q of unique) if (nu.angleTo(q.clone().normalize()) < 1e-5) { dup = true; break; }
+        if (!dup) unique.push(p.clone());
+      }
+      if (unique.length < 3) return [];
+
+      const sum = new THREE.Vector3(0,0,0);
+      unique.forEach(v => sum.add(v.clone().normalize()));
+      const centroid = sum.normalize();
+      let tU = new THREE.Vector3().crossVectors(new THREE.Vector3(0,1,0), centroid);
+      if (tU.lengthSq() < 1e-6) tU.set(1,0,0);
+      tU.normalize();
+      const tV = new THREE.Vector3().crossVectors(centroid, tU).normalize();
+      const arr = unique.map(v => ({ v, a: Math.atan2(v.dot(tV), v.dot(tU)) }));
+      arr.sort((A,B) => A.a - B.a);
+      return arr.map(x => x.v.clone().multiplyScalar(SCENE_EARTH_RADIUS + wantOffset));
+    }
+
+    // build mesh (pairwise: depthWrite=false so triple can show through; renderOrder controls layering)
+    function buildMeshFromPolygon3D(poly3, colorHex, offsetOut = PAIRWISE_OFFSET, opacity = 0.6, isPairwise = true) {
+      if (!poly3 || poly3.length < 3) return null;
+      const sum = new THREE.Vector3(0,0,0);
+      for (let v of poly3) sum.add(v.clone().normalize());
+      if (sum.lengthSq() < 1e-12) return null;
+      const centroidUnit = sum.normalize();
+      const centerPos = centroidUnit.clone().multiplyScalar(SCENE_EARTH_RADIUS + offsetOut);
+      const verts = [centerPos.x, centerPos.y, centerPos.z];
+      for (let i=0;i<poly3.length;i++){ const v = poly3[i].clone().normalize().multiplyScalar(SCENE_EARTH_RADIUS + offsetOut); verts.push(v.x, v.y, v.z); }
+      const indices = [];
+      for (let i=0;i<poly3.length;i++) indices.push(0, i+1, (i+1)%poly3.length + 1);
+      const buf = new THREE.BufferGeometry();
+      buf.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+      buf.setIndex(indices);
+      buf.computeVertexNormals();
+      const mat = new THREE.MeshStandardMaterial({
+        color: colorHex,
+        opacity: opacity,
+        transparent: true,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        polygonOffset: isPairwise ? true : false,
+        polygonOffsetFactor: isPairwise ? -1 : 0,
+        polygonOffsetUnits: isPairwise ? -4 : 0
+      });
+      const mesh = new THREE.Mesh(buf, mat);
+      mesh.renderOrder = isPairwise ? 1 : 2;
+      return mesh;
+    }
+
+    // state
+    const circles = [];
+    let intersectionMeshes = [];
+
+    function clearIntersections() {
+      for (let m of intersectionMeshes) {
+        try { if (m.geometry) m.geometry.dispose(); if (m.material) m.material.dispose(); } catch(e){}
+        scene.remove(m);
+      }
+      intersectionMeshes = [];
+      setStatus('intersections cleared');
+    }
+
+    // updated addCircle signature to accept separate marker/zenith/alt colors
+    function addCircle(initial, name, circleColorHex, markerColorHex, zenithRayColorHex, altRayColorHex) {
+      const params = {
+        lat: initial.lat||0,
+        lon: initial.lon||0,
+        radiusKm: initial.radiusKm||100,
+        visible: true,
+        showMarker: initial.showMarker!==undefined?initial.showMarker:true,
+        showRay: initial.showRay!==undefined?initial.showRay:true,
+        altDeg: initial.altDeg||0,    // altitude slider (deg)
+        azDeg: initial.azDeg||0,      // azimuth slider (deg)
+        showAltRay: initial.showAltRay!==undefined ? initial.showAltRay : true // NEW: checkbox to show/hide alt/az ray
+      };
+      const container = new THREE.Group(); scene.add(container);
+      let markerAndRay = null;
+      function rebuild() {
+        container.clear();
+        if (markerAndRay) { try { markerAndRay.dispose(); } catch(e){} markerAndRay = null; }
+        // If radius is zero or negative, nothing to draw
+        if (params.radiusKm <= 0) { return; }
+
+        // Always create the marker+ray group (marker & rays remain even when circle visibility is off)
+        markerAndRay = createMarkerAndRay(params.lat, params.lon, markerColorHex, zenithRayColorHex, altRayColorHex, params.altDeg, params.azDeg);
+        if (!params.showMarker) markerAndRay.sphere.visible = false;
+        if (!params.showRay) markerAndRay.ray.visible = false;
+        if (markerAndRay.altRay) markerAndRay.altRay.visible = !!params.showAltRay;
+
+        // Create circle perimeter and control only its visibility with params.visible
+        const circleGroup = createSphericalCircleGroup(params.lat, params.lon, params.radiusKm, circleColorHex, { segments: 96 });
+        circleGroup.visible = !!params.visible;
+
+        // Add circle first (so it can be rendered beneath markers if you prefer)
+        container.add(circleGroup);
+        // Then add marker+ray group
+        container.add(markerAndRay.group);
+      }
+      rebuild();
+      const circle = { params, container, rebuild, name };
+      circles.push(circle);
+      return circle;
+    }
+
+    // defaults
+    const defaults = [
+      { lat: 0, lon: 0, radiusKm: 1100, name: 'Circle 1', showMarker:true, showRay:true, altDeg: 0, azDeg: 0, showAltRay: false },
+      { lat: 25, lon: 15, radiusKm: 2500,  name: 'Circle 2', showMarker:true, showRay:true, altDeg: 25, azDeg: 0, showAltRay: false },
+      { lat: 16, lon: -32.5, radiusKm: 3500, name: 'Circle 3', showMarker:true, showRay:true, altDeg: 16, azDeg: 0, showAltRay: false }
+    ];
+
+    // pass per-circle colors here (edit the constants above to change them)
+    addCircle(defaults[0], defaults[0].name, CIRCLE1_PERIM_COLOR, MARKER1_COLOR, ZENITH_RAY1_COLOR, ALTRAY1_COLOR);
+    addCircle(defaults[1], defaults[1].name, CIRCLE2_PERIM_COLOR, MARKER2_COLOR, ZENITH_RAY2_COLOR, ALTRAY2_COLOR);
+    addCircle(defaults[2], defaults[2].name, CIRCLE3_PERIM_COLOR, MARKER3_COLOR, ZENITH_RAY3_COLOR, ALTRAY3_COLOR);
+
+    // GUI: create once after circles exist, add the alt/az sliders
+    const gui = new dat.GUI({ width: 300 });
+    circles.forEach((c, idx) => {
+      const f = gui.addFolder(c.name || `Circle ${idx+1}`);
+      f.add(c.params, 'lat', -90, 90, 0.01).onChange(() => { c.rebuild(); if (document.getElementById('autoUpdate').checked) updateIntersections(); });
+      f.add(c.params, 'lon', -180, 180, 0.01).onChange(() => { c.rebuild(); if (document.getElementById('autoUpdate').checked) updateIntersections(); });
+      f.add(c.params, 'radiusKm', 0, GREAT_CIRCLE_KM, 0.01).name('Radius (km)').onChange(() => { c.rebuild(); if (document.getElementById('autoUpdate').checked) updateIntersections(); });
+      f.add(c.params, 'visible').name('Visible').onChange(() => { c.rebuild(); if (document.getElementById('autoUpdate').checked) updateIntersections(); });
+      f.add(c.params, 'showMarker').name('Show marker').onChange(() => { c.rebuild(); });
+      f.add(c.params, 'showRay').name('Show zenith ray').onChange(() => { c.rebuild(); });
+      // NEW sliders for alt/az
+      f.add(c.params, 'altDeg', 0, 90, 0.01).name('Alt (deg)').onChange(() => { c.rebuild(); });
+      f.add(c.params, 'azDeg', 0, 360, 0.01).name('Az (deg)').onChange(() => { c.rebuild(); });
+      f.add(c.params, 'showAltRay').name('Show alt/az ray').onChange(() => { c.rebuild(); });
+      // open only the first folder (circle 1); collapse the rest
+      if (idx === 0) f.open(); else f.close();
+    });
+
+    // enable auto-update checkbox by default (redundant with checked attr) and run initial compute once at startup (non-blocking)
+    try { document.getElementById('autoUpdate').checked = true; } catch(e) {}
+    updateIntersections().catch(err => {
+      console.error('Initial computeIntersections failed:', err);
+      setStatus('ready (initial compute failed - see console)');
+    });
+
+    // simulate one wheel "click" zoom-in on startup
+    (function startupZoom() {
+      // approximate one wheel tick zoom factor (wheel handler uses: radius *= 1 + deltaY * 0.0012)
+      // a typical wheel deltaY ~ 100 -> factor ~ 1 - 0.12 = 0.88, so we use 0.88 to zoom in
+      const ZOOM_FACTOR = 0.925;
+      cameraSpherical.radius = Math.max(minRadius, Math.min(maxRadius, cameraSpherical.radius * ZOOM_FACTOR));
+      updateCameraFromSpherical();
+    })();
+
+    // compute intersections
+    async function computeIntersectionsAsync() {
+      setStatus('computing intersections...');
+      try {
+        const caps = circles.map(c => ({ C: latLonUnitVector(c.params.lat, c.params.lon), a: Math.min(Math.max(0, c.params.radiusKm) / EARTH_RADIUS_KM, Math.PI - 1e-6), lat: c.params.lat, lon: c.params.lon, r: c.params.radiusKm }));
+        await yieldNow();
+
+        const pairColor = 0x333333, tripleColor = 0xff0000;
+        const pairs = [[0,1],[0,2],[1,2]];
+        for (let p=0;p<pairs.length;p++){
+          const [i,j] = pairs[p];
+          await yieldNow();
+          if (!circles[i] || !circles[j]) continue;
+          if (!circles[i].params.visible || !circles[j].params.visible) continue;
+          const ci = caps[i], cj = caps[j];
+          const gamma = clamp(Math.acos(clamp(ci.C.dot(cj.C), -1, 1)), 0, Math.PI);
+          if (gamma <= Math.abs(ci.a - cj.a) + 1e-12) {
+            const smaller = ci.a <= cj.a ? ci : cj;
+            const mesh = createSphericalCapMesh(smaller.lat, smaller.lon, smaller.r, pairColor, PAIRWISE_OFFSET, 48, 0.45);
+            if (mesh) { scene.add(mesh); intersectionMeshes.push(mesh); }
+            continue;
+          }
+          if (gamma >= (ci.a + cj.a) - 1e-12) continue;
+          const pts = intersectCirclePerimeters(ci.C, ci.a, cj.C, cj.a);
+          if (pts.length < 2) {
+            const smaller = ci.a <= cj.a ? ci : cj;
+            const mesh = createSphericalCapMesh(smaller.lat, smaller.lon, smaller.r, pairColor, PAIRWISE_OFFSET, 48, 0.45);
+            if (mesh) { scene.add(mesh); intersectionMeshes.push(mesh); }
+            continue;
+          }
+          const poly = buildLensPolygonFromTwoIntersections(ci, cj, pts[0], pts[1], PAIRWISE_OFFSET, 96);
+          await yieldNow();
+          const mesh = buildMeshFromPolygon3D(poly, pairColor, PAIRWISE_OFFSET, 0.45, true);
+          if (mesh) { scene.add(mesh); intersectionMeshes.push(mesh); }
+        }
+
+        // triple region (sampling)
+        await yieldNow();
+        const sampledPts = [];
+        for (let ciIndex=0; ciIndex<3; ciIndex++){
+          const ci = caps[ciIndex];
+          const { u: us, v: vs } = buildBasisFor(ci.C);
+          const samples = Math.max(8, TRIPLE_SAMPLES_PER_CIRCLE);
+          for (let s=0;s<samples;s++){
+            const alpha = (s / samples) * Math.PI * 2;
+            const pUnit = new THREE.Vector3().copy(ci.C).multiplyScalar(Math.cos(ci.a))
+              .addScaledVector(us, Math.cos(alpha) * Math.sin(ci.a))
+              .addScaledVector(vs, Math.sin(alpha) * Math.sin(ci.a)).normalize();
+            if (caps.every(cap => pointInCap(pUnit, cap.C, cap.a))) sampledPts.push(pUnit.clone());
+            if ((s & 63) === 0) await yieldNow();
+          }
+          await yieldNow();
+        }
+        for (let a=0;a<3;a++){
+          for (let b=a+1;b<3;b++){
+            const pts = intersectCirclePerimeters(caps[a].C, caps[a].a, caps[b].C, caps[b].a);
+            for (const p of pts) if (caps.every(cap => pointInCap(p, cap.C, cap.a))) sampledPts.push(p.clone());
+            await yieldNow();
+          }
+        }
+        const uniqueVectors = (vecs) => { const out=[]; for (let v of vecs){ let found=false; for (let u of out) if (v.angleTo(u) < 1e-5) { found=true; break;} if(!found) out.push(v);} return out; };
+        const uniqueTriplePts = uniqueVectors(sampledPts);
+        if (uniqueTriplePts.length >= 3) {
+          const sum = new THREE.Vector3(0,0,0); uniqueTriplePts.forEach(v=>sum.add(v));
+          const centroid = sum.normalize();
+          let tU = new THREE.Vector3().crossVectors(new THREE.Vector3(0,1,0), centroid);
+          if (tU.lengthSq() < 1e-6) tU.set(1,0,0);
+          tU.normalize();
+          const tV = new THREE.Vector3().crossVectors(centroid, tU).normalize();
+          const verts2 = uniqueTriplePts.map(v => ({ v, angle: Math.atan2(v.dot(tV), v.dot(tU)) }));
+          verts2.sort((a,b) => a.angle - b.angle);
+          const poly = verts2.map(x => x.v.clone().multiplyScalar(SCENE_EARTH_RADIUS + TRIPLE_OFFSET));
+          const triMesh = buildMeshFromPolygon3D(poly, tripleColor, TRIPLE_OFFSET, 0.9, false);
+          if (triMesh) { scene.add(triMesh); intersectionMeshes.push(triMesh); }
+        }
+
+        setStatus('intersections computed (' + intersectionMeshes.length + ')');
+      } catch (err) {
+        console.error('computeIntersectionsAsync error:', err);
+        setStatus('error computing intersections (see console)');
+      }
+    }
+
+    async function updateIntersections() {
+      for (let m of intersectionMeshes) {
+        try { if (m.geometry) m.geometry.dispose(); if (m.material) m.material.dispose(); } catch(e){}
+        scene.remove(m);
+      }
+      intersectionMeshes = [];
+      await computeIntersectionsAsync();
+    }
+
+    function clearAllIntersections() { clearIntersections(); setStatus('idle'); }
+
+    // UI wiring
+    document.getElementById('computeBtn').addEventListener('click', async () => { setStatus('started compute'); await updateIntersections(); });
+    document.getElementById('clearBtn').addEventListener('click', () => { clearAllIntersections(); });
+
+    // orbit controls & render loop
+    const canvas = renderer.domElement;
+    let pointerDown=false, startX=0, startY=0, startTheta=0, startPhi=0;
+    const ROTATION_SPEED=1.6;
+    canvas.style.cursor='grab';
+    canvas.addEventListener('pointerdown', (ev)=>{ pointerDown=true; canvas.setPointerCapture(ev.pointerId); startX=ev.clientX; startY=ev.clientY; startTheta=cameraSpherical.theta; startPhi=cameraSpherical.phi; canvas.style.cursor='grabbing'; });
+    canvas.addEventListener('pointermove', (ev)=>{ if (!pointerDown) return; const dx=(ev.clientX-startX)/Math.max(window.innerWidth,1); const dy=(ev.clientY-startY)/Math.max(window.innerHeight,1); cameraSpherical.theta = startTheta + dx * Math.PI * ROTATION_SPEED; cameraSpherical.phi = startPhi - dy * Math.PI * ROTATION_SPEED; const eps=0.01; cameraSpherical.phi = Math.max(eps, Math.min(Math.PI-eps, cameraSpherical.phi)); updateCameraFromSpherical(); });
+    function endPointer(ev){ pointerDown=false; try{ canvas.releasePointerCapture(ev.pointerId); }catch(e){} canvas.style.cursor='grab'; }
+    canvas.addEventListener('pointerup', endPointer); canvas.addEventListener('pointercancel', endPointer);
+    canvas.addEventListener('wheel', (ev)=>{ ev.preventDefault(); cameraSpherical.radius *= (1 + ev.deltaY * 0.0012); cameraSpherical.radius = Math.max(minRadius, Math.min(maxRadius, cameraSpherical.radius)); updateCameraFromSpherical(); }, { passive:false });
+    canvas.addEventListener('dblclick', () => { cameraSpherical = { theta:0.0, phi:Math.PI*0.45, radius: initialDistance }; updateCameraFromSpherical(); });
+    window.addEventListener('resize', () => { camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); updateCameraFromSpherical(); });
+
+    (function animate(){ requestAnimationFrame(animate); try { renderer.render(scene, camera); } catch(e) { console.error('render error', e); setStatus('render error (see console)'); } })();
+
+    setStatus('ready');
+  })();
+  </script>
+</body>
+</html>
