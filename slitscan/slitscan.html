@@ -1,0 +1,39 @@
+<html>
+  <head>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.7.2/p5.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.7.2/addons/p5.dom.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.7.2/addons/p5.sound.min.js"></script>
+    <link rel="stylesheet" type="text/css" href="style.css">
+    <meta charset="utf-8" />
+
+  </head>
+  <body>
+    <script>
+      let x = 0;
+      let s1;
+
+      function setup() {
+        createCanvas(800, 400);
+        pixelDensity(1);
+        video = createCapture(VIDEO);
+        //video.size(320, 240);
+        video.hide();
+        background(0);
+        // s1 = createSlider(0,width,0,0);
+        // s1.position(10,620);
+      }//su()
+
+      function draw() {
+        video.loadPixels();
+        let w = video.width;
+        let h = video.height;
+        copy(video, w/2, 0, 1, h, x, 0, 1, h);
+        x = x + 1;
+        if (x > width) {
+          x = 0;
+        }//fi
+      }//dr()
+
+    </script>
+  </body>
+</html>
